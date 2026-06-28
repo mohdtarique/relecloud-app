@@ -8,7 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Net.Http.Json" Version="9.0.0" />
+    <Compile Remove="FunctionApp/**" />
+    <Content Remove="FunctionApp/**" />
+    <EmbeddedResource Remove="FunctionApp/**" />
+    <None Remove="FunctionApp/**" />
   </ItemGroup>
 
 </Project>
