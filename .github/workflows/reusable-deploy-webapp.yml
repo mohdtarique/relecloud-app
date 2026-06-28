@@ -1,0 +1,177 @@
+# ============================================================
+# Reusable Workflow — Web App Deploy + Slot Swap
+#
+# Called by ci-cd.yml (and any future caller)
+# Uses composite actions for build and login steps
+# so logic is not duplicated across jobs
+#
+# Pattern: Build once → Deploy to staging → Gate → Swap
+# Rollback: reverse swap (previous prod sits in staging)
+#
+# Composite actions used:
+#   .github/actions/dotnet-build  → restore, build, publish, zip, upload
+#   .github/actions/azure-login   → OIDC login (used in every job needing Azure)
+# ============================================================
+
+name: Reusable — Deploy Web App
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (dev, staging, prod)"
+        type: string
+        required: true
+      app_service_name:
+        description: "Azure App Service name"
+        type: string
+        required: true
+      resource_group:
+        description: "Resource group containing the App Service"
+        type: string
+        required: true
+      slot_name:
+        description: "Deployment slot to deploy code into first"
+        type: string
+        required: true
+        default: "staging"
+      dotnet_version:
+        description: ".NET SDK version to build with"
+        type: string
+        required: false
+        default: "8.0.x"
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+
+# ============================================================
+# Permissions — required for OIDC token issuance
+# id-token: write  → allows GitHub to issue an OIDC token
+# contents: read   → allows checkout
+# Without id-token: write, azure/login fails with
+# "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL"
+# ============================================================
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ============================================================
+  # Job 1: Build
+  # Calls the dotnet-build composite action
+  # Produces a versioned zip artifact named webapp-<sha>.zip
+  # ============================================================
+  build:
+    name: Build
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build and package web app
+        uses: ./.github/actions/dotnet-build
+        with:
+          project-path: dotnetcoresample.csproj
+          artifact-name: webapp
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+  # ============================================================
+  # Job 2: Deploy to Staging Slot
+  # Downloads the versioned artifact built in Job 1
+  # Deploys to staging slot only — production is untouched
+  # Calls azure-login composite action for OIDC auth
+  # ============================================================
+  deploy-staging:
+    name: Deploy to Staging Slot
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: ./.github/actions/azure-login
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: webapp-${{ github.sha }}
+
+      - name: Deploy to staging slot
+        shell: pwsh
+        run: |
+          az webapp deploy `
+            --resource-group ${{ inputs.resource_group }} `
+            --name ${{ inputs.app_service_name }} `
+            --slot ${{ inputs.slot_name }} `
+            --src-path ./webapp-${{ github.sha }}.zip `
+            --type zip
+
+      - name: Verify staging slot is running
+        shell: pwsh
+        run: |
+          $status = az webapp show `
+            --resource-group ${{ inputs.resource_group }} `
+            --name ${{ inputs.app_service_name }} `
+            --slot ${{ inputs.slot_name }} `
+            --query "state" -o tsv
+          if ($status -ne "Running") {
+            Write-Error "Staging slot is not Running: $status"
+            exit 1
+          }
+          Write-Output "Staging slot state: $status"
+
+  # ============================================================
+  # Job 3: Swap Slots
+  # Targets the 'production' GitHub Environment
+  # Required reviewers must approve before this job executes
+  # Swap is instant — zero downtime, no redeployment
+  #
+  # After swap:
+  #   production slot = new code  ← live to users
+  #   staging slot    = old code  ← instant rollback available
+  # ============================================================
+  swap-to-production:
+    name: Swap to Production
+    runs-on: windows-latest
+    needs: deploy-staging
+    environment: production
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: ./.github/actions/azure-login
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Swap staging → production
+        shell: pwsh
+        run: |
+          az webapp deployment slot swap `
+            --resource-group ${{ inputs.resource_group }} `
+            --name ${{ inputs.app_service_name }} `
+            --slot ${{ inputs.slot_name }} `
+            --target-slot production
+
+      - name: Verify production is running
+        shell: pwsh
+        run: |
+          $status = az webapp show `
+            --resource-group ${{ inputs.resource_group }} `
+            --name ${{ inputs.app_service_name }} `
+            --query "state" -o tsv
+          Write-Output "Production slot state after swap: $status"

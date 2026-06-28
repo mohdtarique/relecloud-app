@@ -1,0 +1,36 @@
+# ============================================================
+# Caller Workflow — CI/CD Pipeline
+#
+# Triggered on push to main branch
+# Calls the reusable deploy workflow with environment-specific inputs
+#
+# This workflow owns WHAT to deploy and WHERE
+# The reusable workflow owns HOW to deploy it
+# ============================================================
+
+name: CI/CD — Relecloud Web App
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Dev
+    uses: ./.github/workflows/reusable-deploy-webapp.yml
+    with:
+      environment: dev
+      app_service_name: app-relecloud-dev-01
+      resource_group: rg-relecloud-dev-appservice
+      slot_name: staging
+      dotnet_version: "8.0.x"
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

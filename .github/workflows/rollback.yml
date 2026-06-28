@@ -1,0 +1,70 @@
+# ============================================================
+# Rollback Workflow — Reverse Slot Swap
+#
+# Triggered manually (workflow_dispatch) by an engineer
+# NOT triggered automatically — rollback requires human decision
+#
+# How it works:
+#   After normal swap: production=v2, staging=v1
+#   This workflow swaps again: production=v1, staging=v2
+#   Result: instant rollback, no redeployment needed
+#
+# Enterprise standard:
+#   - Rollback is a conscious human action, not automated
+#   - Reason input creates an audit trail in the Actions log
+#   - Approval gate on production environment still applies
+# ============================================================
+
+name: Rollback — Reverse Slot Swap
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for rollback (required for audit trail)"
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  rollback:
+    name: Rollback Production
+    runs-on: windows-latest
+    environment: production
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Log rollback reason
+        shell: pwsh
+        run: |
+          Write-Output "Rollback triggered by ${{ github.actor }} — Reason: ${{ inputs.reason }}"
+
+      - name: Login to Azure
+        uses: ./.github/actions/azure-login
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Swap production → staging (rollback)
+        shell: pwsh
+        run: |
+          az webapp deployment slot swap `
+            --resource-group rg-relecloud-dev-appservice `
+            --name app-relecloud-dev-01 `
+            --slot staging `
+            --target-slot production
+
+      - name: Verify production state after rollback
+        shell: pwsh
+        run: |
+          $status = az webapp show `
+            --resource-group rg-relecloud-dev-appservice `
+            --name app-relecloud-dev-01 `
+            --query "state" -o tsv
+          Write-Output "Production slot state after rollback: $status"

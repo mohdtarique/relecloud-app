@@ -1,0 +1,39 @@
+# ============================================================
+# Composite Action — Azure Login via OIDC
+#
+# Wraps the azure/login step so every job uses identical
+# login logic without repeating the same 5 lines everywhere
+#
+# Why composite and not inline?
+# - If Microsoft changes the azure/login action version,
+#   we update it in ONE place, not in every job
+# - Every job that needs Azure access calls this action
+#
+# Enterprise standard:
+# - OIDC only — no client secrets stored anywhere
+# - Federated credential on UAMI validates the GitHub token
+# ============================================================
+
+name: Azure Login
+description: Authenticate to Azure using OIDC federated credentials — no stored secrets
+
+inputs:
+  client-id:
+    description: "Client ID of the User-Assigned Managed Identity"
+    required: true
+  tenant-id:
+    description: "Azure Entra ID tenant ID"
+    required: true
+  subscription-id:
+    description: "Azure subscription ID"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Login to Azure (OIDC)
+      uses: azure/login@v2
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}

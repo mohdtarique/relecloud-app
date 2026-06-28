@@ -1,0 +1,89 @@
+# ============================================================
+# Composite Action — .NET Build + Publish + Zip
+#
+# Encapsulates the full build pipeline for a .NET app:
+#   restore → build → publish → zip → upload artifact
+#
+# Why composite?
+# - Web app and Function App follow the same build steps
+# - Any future service in this repo reuses this action
+# - Build version (.NET SDK) is controlled in one place
+#
+# Output: versioned zip artifact named webapp-<sha>.zip
+# Artifact retained for 30 days for audit + manual redeploy
+#
+# Enterprise standard:
+# - Artifact named by git SHA — every build is traceable
+# - Artifact stored in GitHub Actions for short-term retention
+# - For long-term: push to Artifactory/Nexus (not implemented here)
+# ============================================================
+
+name: .NET Build
+description: Restore, build, publish and upload a versioned .NET application artifact
+
+inputs:
+  project-path:
+    description: "Path to the .csproj file to publish"
+    required: true
+  artifact-name:
+    description: "Name prefix for the uploaded artifact"
+    required: true
+  dotnet-version:
+    description: ".NET SDK version"
+    required: false
+    default: "8.0.x"
+
+outputs:
+  artifact-name:
+    description: "Full artifact name including git SHA"
+    value: ${{ steps.set-artifact-name.outputs.name }}
+  zip-path:
+    description: "Path to the zip file produced"
+    value: ${{ steps.set-artifact-name.outputs.zip }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set artifact name
+      id: set-artifact-name
+      shell: pwsh
+      run: |
+        $name = "${{ inputs.artifact-name }}-${{ github.sha }}"
+        $zip  = "./${{ inputs.artifact-name }}-${{ github.sha }}.zip"
+        echo "name=$name" >> $env:GITHUB_OUTPUT
+        echo "zip=$zip"   >> $env:GITHUB_OUTPUT
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+
+    - name: Restore dependencies
+      shell: pwsh
+      run: dotnet restore ${{ inputs.project-path }}
+
+    - name: Build project
+      shell: pwsh
+      run: dotnet build ${{ inputs.project-path }} --configuration Release --no-restore
+
+    - name: Publish project
+      shell: pwsh
+      run: |
+        dotnet publish ${{ inputs.project-path }} `
+          --configuration Release `
+          --no-build `
+          --output ./publish/${{ inputs.artifact-name }}
+
+    - name: Zip artifact
+      shell: pwsh
+      run: |
+        Compress-Archive `
+          -Path ./publish/${{ inputs.artifact-name }}/* `
+          -DestinationPath ${{ steps.set-artifact-name.outputs.zip }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.set-artifact-name.outputs.name }}
+        path: ${{ steps.set-artifact-name.outputs.zip }}
+        retention-days: 30
