@@ -1,4 +1,3 @@
-using Azure.Identity;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Data.SqlClient;
@@ -21,7 +20,7 @@ public class TicketFunction
     // Body: { "customerName": "John" }
     [Function("BookTicket")]
     public async Task<HttpResponseData> BookTicket(
-        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequestData req)
     {
         var body = await JsonSerializer.DeserializeAsync<BookingRequest>(
             req.Body,
@@ -52,7 +51,7 @@ public class TicketFunction
     // GET /api/GetTickets
     [Function("GetTickets")]
     public async Task<HttpResponseData> GetTickets(
-        [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequestData req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequestData req)
     {
         await using var conn = await GetConnectionAsync();
         await EnsureTableAsync(conn);
@@ -81,14 +80,9 @@ public class TicketFunction
         var connectionString = Environment.GetEnvironmentVariable("SqlConnectionString")
             ?? throw new InvalidOperationException("SqlConnectionString not configured");
 
+        // Connection string already contains Authentication=Active Directory Managed Identity
+        // SqlClient handles the token acquisition internally — no manual token needed
         var conn = new SqlConnection(connectionString);
-
-        // Managed Identity token — no password, no rotation needed
-        var credential = new DefaultAzureCredential();
-        var token = await credential.GetTokenAsync(
-            new Azure.Core.TokenRequestContext(["https://database.windows.net/.default"]));
-        conn.AccessToken = token.Token;
-
         await conn.OpenAsync();
         return conn;
     }
