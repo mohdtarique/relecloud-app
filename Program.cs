@@ -8,9 +8,9 @@ builder.Services.AddRazorComponents()
 // HttpClient pointing to Function App — URL injected via App Service app setting
 builder.Services.AddHttpClient("FunctionApp", client =>
 {
-    var baseUrl = builder.Configuration["FunctionApp__BaseUrl"]
-        ?? throw new InvalidOperationException("FunctionApp__BaseUrl is not configured");
-    client.BaseAddress = new Uri(baseUrl);
+    var baseUrl = builder.Configuration["FunctionApp__BaseUrl"];
+    if (!string.IsNullOrEmpty(baseUrl))
+        client.BaseAddress = new Uri(baseUrl);
 });
 
 var app = builder.Build();
