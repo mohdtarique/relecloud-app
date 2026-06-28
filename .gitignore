@@ -286,3 +286,6 @@ __pycache__/
 *.btm.cs
 *.odx.cs
 *.xsd.cs
+
+# Azure Functions local settings — contains connection strings, never commit
+local.settings.json

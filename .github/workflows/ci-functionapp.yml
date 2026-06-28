@@ -1,0 +1,26 @@
+name: CI/CD — Function App
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'FunctionApp/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-functionapp:
+    name: Deploy Function App
+    uses: ./.github/workflows/reusable-deploy-functionapp.yml
+    with:
+      function_app_name: func-relecloud-dev-01
+      resource_group: rg-relecloud-dev-functionapp
+      dotnet_version: "8.0.x"
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

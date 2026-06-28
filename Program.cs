@@ -2,9 +2,16 @@ using dotnetcoresample.Components;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// HttpClient pointing to Function App — URL injected via App Service app setting
+builder.Services.AddHttpClient("FunctionApp", client =>
+{
+    var baseUrl = builder.Configuration["FunctionApp__BaseUrl"]
+        ?? throw new InvalidOperationException("FunctionApp__BaseUrl is not configured");
+    client.BaseAddress = new Uri(baseUrl);
+});
 
 var app = builder.Build();
 

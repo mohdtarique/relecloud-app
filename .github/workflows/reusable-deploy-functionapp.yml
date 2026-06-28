@@ -1,0 +1,87 @@
+name: Reusable — Deploy Function App
+
+on:
+  workflow_call:
+    inputs:
+      function_app_name:
+        description: "Azure Function App name"
+        type: string
+        required: true
+      resource_group:
+        description: "Resource group containing the Function App"
+        type: string
+        required: true
+      dotnet_version:
+        description: ".NET SDK version to build with"
+        type: string
+        required: false
+        default: "8.0.x"
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: Build Function App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build and package Function App
+        uses: ./.github/actions/dotnet-build
+        with:
+          project-path: FunctionApp/FunctionApp.csproj
+          artifact-name: functionapp
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+  deploy:
+    name: Deploy Function App
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: ./.github/actions/azure-login
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: functionapp-${{ github.sha }}
+
+      - name: Deploy to Function App
+        shell: pwsh
+        run: |
+          az functionapp deployment source config-zip `
+            --resource-group ${{ inputs.resource_group }} `
+            --name ${{ inputs.function_app_name }} `
+            --src ./functionapp-${{ github.sha }}.zip
+
+      - name: Verify Function App is running
+        shell: pwsh
+        run: |
+          $status = az functionapp show `
+            --resource-group ${{ inputs.resource_group }} `
+            --name ${{ inputs.function_app_name }} `
+            --query "state" -o tsv
+          if ($status -ne "Running") {
+            Write-Error "Function App is not Running: $status"
+            exit 1
+          }
+          Write-Output "Function App state: $status"

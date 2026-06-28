@@ -1,19 +1,12 @@
-# ============================================================
-# Caller Workflow — CI/CD Pipeline
-#
-# Triggered on push to main branch
-# Calls the reusable deploy workflow with environment-specific inputs
-#
-# This workflow owns WHAT to deploy and WHERE
-# The reusable workflow owns HOW to deploy it
-# ============================================================
-
-name: CI/CD — Relecloud Web App
+name: CI/CD — Web App
 
 on:
   push:
     branches:
       - main
+    paths:
+      - '**'
+      - '!FunctionApp/**'
   workflow_dispatch:
 
 permissions:
@@ -21,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: Deploy to Dev
+  deploy-webapp:
+    name: Deploy Web App
     uses: ./.github/workflows/reusable-deploy-webapp.yml
     with:
       environment: dev

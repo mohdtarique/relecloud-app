@@ -1,7 +1,96 @@
-﻿@page "/"
+@page "/"
+@inject IHttpClientFactory HttpClientFactory
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Relecloud — Ticket Booking</PageTitle>
 
-<h1>Hello, world!</h1>
+<h2>Book a Ticket</h2>
 
-Welcome to your new app.
+<div>
+    <input @bind="customerName" placeholder="Your name" />
+    <button @onclick="BookTicket" disabled="@isLoading">Book</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <p><em>@message</em></p>
+}
+
+<h3>Bookings</h3>
+
+@if (tickets == null)
+{
+    <p>Loading...</p>
+}
+else if (tickets.Count == 0)
+{
+    <p>No bookings yet.</p>
+}
+else
+{
+    <table>
+        <thead><tr><th>ID</th><th>Customer</th><th>Booked At</th></tr></thead>
+        <tbody>
+            @foreach (var t in tickets)
+            {
+                <tr>
+                    <td>@t.Id</td>
+                    <td>@t.CustomerName</td>
+                    <td>@t.BookedAt</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private string customerName = string.Empty;
+    private string message = string.Empty;
+    private bool isLoading = false;
+    private List<Ticket>? tickets;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTickets();
+    }
+
+    private async Task BookTicket()
+    {
+        if (string.IsNullOrWhiteSpace(customerName)) return;
+
+        isLoading = true;
+        message = string.Empty;
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient("FunctionApp");
+            var response = await client.PostAsJsonAsync("/api/BookTicket", new { customerName });
+            message = response.IsSuccessStatusCode
+                ? "Booking confirmed."
+                : $"Error: {response.StatusCode}";
+            await LoadTickets();
+        }
+        catch (Exception ex)
+        {
+            message = $"Failed: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadTickets()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("FunctionApp");
+            tickets = await client.GetFromJsonAsync<List<Ticket>>("/api/GetTickets") ?? new();
+        }
+        catch
+        {
+            tickets = new();
+        }
+    }
+
+    private record Ticket(int Id, string CustomerName, string BookedAt);
+}
